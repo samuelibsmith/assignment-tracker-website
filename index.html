@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Assignment Tracker</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="auth" class="auth-wrap"><div id="authBox" class="auth-box"></div></div>
+<div id="app" class="shell hidden">
+  <aside class="sidebar">
+    <div class="brand">Assignment Tracker<small>Assignments, exams, grades, and classes</small></div>
+    <nav class="nav">
+      <button data-view="dashboard" class="active">Dashboard</button>
+      <button data-view="assignments">Assignments</button>
+      <button data-view="calendar">Calendar</button>
+      <button data-view="exams">Exams</button>
+      <button data-view="courses">Classes</button>
+      <button data-view="grades">Grades &amp; GPA</button>
+    </nav>
+    <div class="userbox"><b>Signed in</b><div id="userEmail"></div><button id="logout">Log out</button></div>
+  </aside>
+  <main class="main">
+    <div class="topbar"><div><h1 id="appTitle">Dashboard</h1><small>Assignment Tracker</small></div><span id="today"></span></div>
+    <div id="content"></div>
+  </main>
+</div>
+<div id="modal"></div>
+<script>document.getElementById("today").textContent=new Date().toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"});</script>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="app.js"></script>
+</body>
+</html>

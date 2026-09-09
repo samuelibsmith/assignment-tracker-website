@@ -188,3 +188,40 @@ p{color:var(--muted)}
 .date-time-row{display:flex;align-items:center;gap:.45rem}
 .date-time-row input{min-width:0}
 .field-hint{font-size:.75rem;opacity:.6;white-space:nowrap}
+
+
+/* V9 aesthetics: exam and course cards form a spacious vertical grid.
+   Cards wrap into new rows instead of extending sideways indefinitely. */
+.exam-grid,
+.exams-grid,
+.exam-cards,
+.course-grid,
+.courses-grid,
+.course-cards {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  align-items: stretch;
+  width: 100%;
+}
+
+.exam-grid > *,
+.exams-grid > *,
+.exam-cards > *,
+.course-grid > *,
+.courses-grid > *,
+.course-cards > * {
+  min-width: 0;
+  width: auto !important;
+}
+
+@media (max-width: 900px) {
+  .exam-grid,
+  .exams-grid,
+  .exam-cards,
+  .course-grid,
+  .courses-grid,
+  .course-cards {
+    grid-template-columns: 1fr;
+  }
+}

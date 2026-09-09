@@ -1,14 +1,14 @@
 
 /* =========================
-   LOW-CLICK / QUICK ACTIONS
+   ONE-CLICK ACTIONS
    ========================= */
-const QUICK_STATUS_ORDER = ["not_started", "in_progress", "completed"];
+const QUICK_STATUS_ORDER = ["Not Started", "In Progress", "Complete"];
 
 function normalizeStatus(status) {
   const s = String(status || "").toLowerCase().replace(/\s+/g, "_");
-  if (["complete", "completed", "done"].includes(s)) return "completed";
-  if (["in_progress", "progress", "doing"].includes(s)) return "in_progress";
-  return "not_started";
+  if (["complete", "completed", "done"].includes(s)) return "Complete";
+  if (["in_progress", "progress", "doing"].includes(s)) return "In Progress";
+  return "Not Started";
 }
 
 function nextStatus(status) {
@@ -17,71 +17,130 @@ function nextStatus(status) {
   return QUICK_STATUS_ORDER[(i + 1) % QUICK_STATUS_ORDER.length];
 }
 
-function statusLabel(status) {
-  return {
-    not_started: "Not Started",
-    in_progress: "In Progress",
-    completed: "Completed"
-  }[normalizeStatus(status)];
+function statusClass(status) {
+  return normalizeStatus(status).toLowerCase().replace(/\s+/g, "_");
+}
+
+function assignmentById(id) {
+  return state.assignments.find(a => a.id === id);
+}
+
+function assignmentMatchesCurrentFilters(a) {
+  const q = String($("aq")?.value || "").toLowerCase();
+  const s = $("as")?.value || "";
+  return (!q || String(a.title || "").toLowerCase().includes(q))
+    && (!s || normalizeStatus(a.status) === s);
+}
+
+function refreshQuickControlInPlace(triggerEl, assignment) {
+  if (!triggerEl || !assignment) return;
+
+  let replacement = null;
+  if (triggerEl.classList.contains("quick-status")) replacement = quickStatusButton(assignment);
+  else if (triggerEl.classList.contains("quick-done")) replacement = quickDoneButton(assignment);
+  else if (triggerEl.classList.contains("quick-priority")) replacement = quickPriorityButton(assignment);
+  else if (triggerEl.classList.contains("quick-todo")) replacement = quickTodoButton(assignment);
+
+  if (replacement) triggerEl.outerHTML = replacement;
 }
 
 async function quickUpdateAssignment(id, patch, triggerEl) {
-  if (!id || typeof supabase === "undefined") return;
-  if (triggerEl) triggerEl.disabled = true;
+  if (!id || typeof sb === "undefined") return;
+
+  const assignment = assignmentById(id);
+  if (!assignment) return;
+
+  const previous = {};
+  Object.keys(patch).forEach(key => {
+    previous[key] = assignment[key];
+    assignment[key] = patch[key];
+  });
+
+  // Update only the clicked control immediately. No table reload or full render.
+  const row = triggerEl?.closest(".tr");
+  refreshQuickControlInPlace(triggerEl, assignment);
+
+  if (row) {
+    row.hidden = !assignmentMatchesCurrentFilters(assignment);
+    row.classList.add("quick-saving");
+    row.setAttribute("aria-busy", "true");
+  }
+
   try {
-    const { error } = await supabase.from("assignments").update(patch).eq("id", id);
+    const { error } = await sb.from("assignments").update(patch).eq("id", id);
     if (error) throw error;
-    if (typeof loadAssignments === "function") await loadAssignments();
-    else if (typeof renderAssignments === "function") await renderAssignments();
+
+    if (row) {
+      row.classList.remove("quick-saving");
+      row.removeAttribute("aria-busy");
+    }
   } catch (err) {
     console.error(err);
-    alert("Couldn't save that change. Please try again.");
-  } finally {
-    if (triggerEl) triggerEl.disabled = false;
+
+    // Revert only the affected assignment/control if the save fails.
+    Object.keys(previous).forEach(key => {
+      assignment[key] = previous[key];
+    });
+
+    if (row) {
+      row.hidden = !assignmentMatchesCurrentFilters(assignment);
+      row.classList.remove("quick-saving");
+      row.removeAttribute("aria-busy");
+
+      const currentControl = row.querySelector(
+        ".quick-status, .quick-done, .quick-priority, .quick-todo"
+      );
+      if (currentControl) refreshQuickControlInPlace(currentControl, assignment);
+    }
+
+    alert("Couldn't save that change: " + (err.message || err));
   }
 }
 
 function quickStatusButton(a) {
   const status = normalizeStatus(a.status);
-  const label = statusLabel(status);
   const next = nextStatus(status);
-  const symbol = status === "completed" ? "✓" : status === "in_progress" ? "●" : "○";
+  const symbol = status === "Complete" ? "✓" : status === "In Progress" ? "●" : "○";
+
   return `
-    <button class="quick-status ${status}" type="button"
-      title="One click: change to ${statusLabel(next)}"
-      aria-label="Change assignment status to ${statusLabel(next)}"
+    <button class="quick-status ${statusClass(status)}" type="button"
+      title="Click to change to ${next}"
+      aria-label="Change ${esc(a.title)} to ${next}"
       onclick="event.stopPropagation(); quickUpdateAssignment('${a.id}', {status:'${next}'}, this)">
-      <span class="quick-status-check">${symbol}</span><span>${label}</span>
+      <span>${symbol}</span><span>${esc(status)}</span>
     </button>`;
 }
 
 function quickDoneButton(a) {
-  const done = normalizeStatus(a.status) === "completed";
+  const done = normalizeStatus(a.status) === "Complete";
   return `
     <button class="quick-done ${done ? "done" : ""}" type="button"
       title="${done ? "Click to reopen" : "Mark complete"}"
       aria-label="${done ? "Reopen assignment" : "Mark assignment complete"}"
-      onclick="event.stopPropagation(); quickUpdateAssignment('${a.id}', {status:'${done ? "in_progress" : "completed"}'}, this)">
+      onclick="event.stopPropagation(); quickUpdateAssignment('${a.id}', {status:'${done ? "In Progress" : "Complete"}'}, this)">
       ${done ? "✓" : "○"}
     </button>`;
 }
 
 function quickPriorityButton(a) {
-  const priority = !!(a.priority || a.is_priority);
+  const priority = String(a.priority || "Normal");
+  const active = priority === "High" || priority === "Urgent";
+  const next = active ? "Normal" : "High";
+
   return `
-    <button class="quick-icon ${priority ? "active" : ""}" type="button"
-      title="${priority ? "Remove priority" : "Mark priority"}"
-      aria-label="${priority ? "Remove priority" : "Mark priority"}"
-      onclick="event.stopPropagation(); quickUpdateAssignment('${a.id}', {priority:${!priority}}, this)">★</button>`;
+    <button class="quick-icon ${active ? "active" : ""}" type="button"
+      title="${active ? "Remove priority" : "Mark high priority"}"
+      aria-label="${active ? "Remove priority" : "Mark high priority"}"
+      onclick="event.stopPropagation(); quickUpdateAssignment('${a.id}', {priority:'${next}'}, this)">★</button>`;
 }
 
 function quickTodoButton(a) {
-  const todo = !!(a.to_do_list || a.todo || a.is_todo);
+  const todo = !!a.is_todo;
   return `
     <button class="quick-icon ${todo ? "active" : ""}" type="button"
       title="${todo ? "Remove from to-do" : "Add to to-do"}"
       aria-label="${todo ? "Remove from to-do" : "Add to to-do"}"
-      onclick="event.stopPropagation(); quickUpdateAssignment('${a.id}', {to_do_list:${!todo}}, this)">☑</button>`;
+      onclick="event.stopPropagation(); quickUpdateAssignment('${a.id}', {is_todo:${!todo}}, this)">☑</button>`;
 }
 
 window.quickUpdateAssignment = quickUpdateAssignment;
@@ -166,8 +225,28 @@ function examRow(x){const c=state.courses.find(c=>c.id===x.course_id);const d=da
 function coursePulse(c){const grades=state.grades.filter(g=>g.course_id===c.id&&g.points_earned!=null&&g.points_possible);let p=grades.length?grades.reduce((a,g)=>a+Number(g.points_earned),0)/grades.reduce((a,g)=>a+Number(g.points_possible),0)*100:null;return `<div class="pulse"><span class="swatch" style="background:${esc(c.color)}"></span><b>${esc(c.code)}</b><div class="grow"><div class="bar"><i style="width:${p||0}%;background:${esc(c.color)}"></i></div></div><strong>${p==null?"—":p.toFixed(1)+"%"}</strong></div>`}
 function renderAssignments(){
  const rows=[...state.assignments].sort((a,b)=>new Date(a.due_at||"9999")-new Date(b.due_at||"9999"));
- $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">MASTERLIST</span><h2>All assignments</h2><p>Assignments and deadlines</p></div><button class="btn primary" onclick="openAssignment()">＋ Add assignment</button></div><div class="card"><div class="filters"><input id="aq" placeholder="Search…"><select id="as"><option value="">All statuses</option><option>Not Started</option><option>In Progress</option><option>Complete</option></select></div><div id="assignmentTable"></div></div>`;
- const draw=()=>{let q=$("aq").value.toLowerCase(),s=$("as").value;let r=rows.filter(x=>(!q||x.title.toLowerCase().includes(q))&&(!s||x.status===s));$("assignmentTable").innerHTML=`<div class="table"><div class="tr th"><span>Status</span><span>Assignment</span><span>Course</span><span>Due</span><span>Priority</span><span></span></div>${r.map(x=>{let c=state.courses.find(c=>c.id===x.course_id),d=daysUntil(x.due_at);return `<div class="tr"><span><em class="pill ${x.status==='Complete'?'good':x.status==='In Progress'?'warn':''}">${esc(x.status)}</em></span><span><b>${esc(x.title)}</b><small>${esc(x.assignment_type)}</small></span><span>${esc(c?.code||"—")}</span><span class="${d!=null&&d<=2?'hot':''}">${fmtDateTime(x.due_at)}<small>${d==null?"":d<0?"Overdue":d===0?"Today":d+" days"}</small></span><span>${esc(x.priority)}</span><span><button class="icon" onclick="editAssignment('${x.id}')">✎</button><button class="icon" onclick="deleteAssignment('${x.id}')">×</button></span></div>`}).join("")||'<div class="empty">No assignments found.</div>'}</div>`};$("aq").oninput=draw;$("as").oninput=draw;draw();
+ $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">MASTERLIST</span><h2>All assignments</h2><p>Click a status to cycle it: Not Started → In Progress → Complete.</p></div><button class="btn primary" onclick="openAssignment()">＋ Add assignment</button></div><div class="card"><div class="filters"><input id="aq" placeholder="Search…"><select id="as"><option value="">All statuses</option><option>Not Started</option><option>In Progress</option><option>Complete</option></select></div><div id="assignmentTable"></div></div>`;
+ const draw=()=>{
+   let q=$("aq").value.toLowerCase(),s=$("as").value;
+   let r=rows.filter(x=>(!q||String(x.title||"").toLowerCase().includes(q))&&(!s||normalizeStatus(x.status)===s));
+   $("assignmentTable").innerHTML=`<div class="table">
+     <div class="tr th"><span>Done</span><span>Assignment</span><span>Course</span><span>Due</span><span>Status</span><span>Actions</span></div>
+     ${r.map(x=>{
+       let c=state.courses.find(c=>c.id===x.course_id),d=daysUntil(x.due_at);
+       return `<div class="tr">
+         <span>${quickDoneButton(x)}</span>
+         <span><b>${esc(x.title)}</b><small>${esc(x.assignment_type)}</small></span>
+         <span>${esc(c?.code||"—")}</span>
+         <span class="${d!=null&&d<=2?'hot':''}">${fmtDateTime(x.due_at)}<small>${d==null?"":d<0?"Overdue":d===0?"Today":d+" days"}</small></span>
+         <span>${quickStatusButton(x)}</span>
+         <span class="quick-actions">${quickPriorityButton(x)}${quickTodoButton(x)}<button class="icon" title="Edit" onclick="editAssignment('${x.id}')">✎</button><button class="icon" title="Delete" onclick="deleteAssignment('${x.id}')">×</button></span>
+       </div>`;
+     }).join("")||'<div class="empty">No assignments found.</div>'}
+   </div>`;
+ };
+ $("aq").oninput=draw;
+ $("as").oninput=draw;
+ draw();
 }
 function renderCalendar(){
  const now=new Date(), y=now.getFullYear(),m=now.getMonth(),first=new Date(y,m,1),daysIn=new Date(y,m+1,0).getDate(),start=(first.getDay()+6)%7;

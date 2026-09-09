@@ -161,3 +161,25 @@ p{color:var(--muted)}
   .modal-actions{grid-column:auto}.tr{grid-template-columns:1fr 1fr;min-width:0}
   .tr.th{display:none}.tr>span:nth-child(3),.tr>span:nth-child(5){display:none}
 }
+
+
+/* One-click assignment controls */
+.quick-actions{display:flex;align-items:center;justify-content:flex-start;gap:5px}
+.quick-status{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border:0;border-radius:999px;
+  font-size:10px;font-weight:750;cursor:pointer}
+.quick-status.not_started{background:#eee;color:#555}
+.quick-status.in_progress{background:#fff5d9;color:#986900}
+.quick-status.complete{background:#e7f5ed;color:#187a45}
+.quick-status:disabled,.quick-done:disabled,.quick-icon:disabled{opacity:.55;cursor:wait}
+.quick-done,.quick-icon{width:30px;height:30px;border:0;border-radius:6px;background:#eee;color:#666;
+  display:inline-grid;place-items:center;font-weight:800;cursor:pointer}
+.quick-done{border-radius:50%}
+.quick-done.done{background:#e7f5ed;color:#187a45}
+.quick-icon.active{background:#fff5d9;color:#986900}
+@media(max-width:1050px){
+  .tr{grid-template-columns:70px minmax(190px,2fr) 110px 150px 130px 125px}
+}
+
+
+/* Quick actions save in place without rebuilding the assignment table. */
+.tr.quick-saving { opacity: .72; transition: opacity .15s ease; }

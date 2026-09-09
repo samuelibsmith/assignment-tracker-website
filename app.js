@@ -99,18 +99,13 @@ async function quickUpdateAssignment(id, patch, triggerEl) {
 
 function quickStatusButton(a) {
   const status = normalizeStatus(a.status);
-  const next = nextStatus(status);
-  const symbol = status === "Complete" ? "✓" : status === "In Progress" ? "●" : "○";
-
-  return `
-    <button class="quick-status ${statusClass(status)}" type="button"
-      title="Click to change to ${next}"
-      aria-label="Change ${esc(a.title)} to ${next}"
-      onclick="event.stopPropagation(); quickUpdateAssignment('${a.id}', {status:'${next}'}, this)">
-      <span>${symbol}</span><span>${esc(status)}</span>
-    </button>`;
+  return `<select class="quick-status ${statusClass(status)}"
+    aria-label="Change ${esc(a.title)} status"
+    onclick="event.stopPropagation()"
+    onchange="event.stopPropagation(); quickUpdateAssignment('${a.id}', {status:this.value}, this)">
+    ${QUICK_STATUS_ORDER.map(st => `<option value="${st}" ${st === status ? "selected" : ""}>${st}</option>`).join("")}
+  </select>`;
 }
-
 function quickDoneButton(a) {
   const done = normalizeStatus(a.status) === "Complete";
   return `
@@ -159,7 +154,12 @@ let state = { user:null, semesters:[], courses:[], assignments:[], exams:[], gra
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 const fmtDate = x => x ? new Date(x).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}) : "—";
-const fmtDateTime = x => x ? new Date(x).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}) : "—";
+const fmtDateTime = x => {
+  if(!x) return "—";
+  const d=new Date(x);
+  const base=d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+  return (d.getHours()===0 && d.getMinutes()===0) ? base : d.toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+};
 const daysUntil = x => x ? Math.ceil((new Date(x)-new Date())/86400000) : null;
 
 async function boot(){
@@ -268,8 +268,17 @@ function gpaFromPercent(p){return p>=93?4:p>=90?3.7:p>=87?3.3:p>=83?3:p>=80?2.7:
 async function insert(table,obj){const {error}=await sb.from(table).insert({...obj,user_id:state.user.id});if(error){alert(error.message);return false;}await loadAll();render();return true}
 async function update(table,id,obj){const {error}=await sb.from(table).update(obj).eq("id",id);if(error)alert(error.message);await loadAll();render()}
 async function remove(table,id){if(confirm("Delete this item?")){const {error}=await sb.from(table).delete().eq("id",id);if(error)alert(error.message);await loadAll();render()}}
-function openAssignment(id){let x=id?state.assignments.find(a=>a.id===id):null;modalForm("Assignment",[
- ["title","Title","text",x?.title||""],["course_id","Course","select",x?.course_id||"",state.courses.map(c=>[c.id,c.code+" — "+c.name])],["due_at","Due date/time","datetime-local",x?.due_at?new Date(x.due_at).toISOString().slice(0,16):""],["assignment_type","Type","text",x?.assignment_type||"Assignment"],["priority","Priority","select",x?.priority||"Normal",["Low","Normal","High","Urgent"].map(x=>[x,x])],["status","Status","select",x?.status||"Not Started",["Not Started","In Progress","Complete"].map(x=>[x,x])]],async v=>id?update("assignments",id,v):insert("assignments",v))}
+function openAssignment(id){
+  let x=id?state.assignments.find(a=>a.id===id):null;
+  modalForm("Assignment",[
+    ["title","Title","text",x?.title||""],
+    ["course_id","Course","select",x?.course_id||"",state.courses.map(c=>[c.id,c.code+" — "+c.name])],
+    ["due_at","Due date","date-optional-time",x?.due_at||""],
+    ["assignment_type","Type","text",x?.assignment_type||"Assignment"],
+    ["priority","Priority","select",x?.priority||"Normal",["Low","Normal","High","Urgent"].map(x=>[x,x])],
+    ["status","Status","select",x?.status||"Not Started",["Not Started","In Progress","Complete"].map(x=>[x,x])]
+  ],async v=>id?update("assignments",id,v):insert("assignments",v))
+}
 function editAssignment(id){openAssignment(id)} function deleteAssignment(id){remove("assignments",id)}
 function openExam(id){let x=id?state.exams.find(a=>a.id===id):null;modalForm("Exam",[["title","Title","text",x?.title||""],["course_id","Course","select",x?.course_id||"",state.courses.map(c=>[c.id,c.code+" — "+c.name])],["starts_at","Date/time","datetime-local",x?.starts_at?new Date(x.starts_at).toISOString().slice(0,16):""],["exam_type","Type","text",x?.exam_type||"Exam"],["location","Location","text",x?.location||""],["weight_percent","Grade weight %","number",x?.weight_percent||""]],async v=>id?update("exams",id,v):insert("exams",v))}
 function editExam(id){openExam(id)} function deleteExam(id){remove("exams",id)}
@@ -300,7 +309,37 @@ function openCourse(id){
   })
 }
 function openGrade(){modalForm("Grade item",[["title","Item","text",""],["course_id","Course","select","",state.courses.map(c=>[c.id,c.code+" — "+c.name])],["category","Category","text","Assignment"],["points_earned","Points earned","number",""],["points_possible","Points possible","number",""],["weight_percent","Weight %","number",""],["graded_at","Graded date","date",""]],async v=>insert("grade_items",v))}
-function modalForm(title,fields,onSave){$("modal").innerHTML=`<div class="modal-box"><div class="modal-head"><h2>${title}</h2><button onclick="closeModal()">×</button></div><form id="dynamic">${fields.map(f=>`<label>${esc(f[1])}${f[2]==="select"?`<select name="${f[0]}" required><option value="">Choose…</option>${f[4].map(o=>`<option value="${esc(o[0])}" ${o[0]==f[3]?"selected":""}>${esc(o[1])}</option>`).join("")}</select>`:`<input name="${f[0]}" type="${f[2]}" value="${esc(f[3])}" ${["title","course_id","due_at","starts_at","code","name"].includes(f[0])?"required":""}>`}</label>`).join("")}<div class="modal-actions"><button type="button" onclick="closeModal()">Cancel</button><button class="btn primary">Save</button></div></form></div>`;$("modal").classList.add("open");$("dynamic").onsubmit=e=>{e.preventDefault();let v=Object.fromEntries(new FormData(e.target).entries());["weight_percent","credits","points_earned","points_possible"].forEach(k=>{if(v[k]!==undefined&&v[k]!=="")v[k]=Number(v[k])});["due_at","starts_at"].forEach(k=>{if(v[k])v[k]=new Date(v[k]).toISOString()});onSave(v);closeModal()}}
+function modalForm(title,fields,onSave){
+  const fieldHtml = fields.map(f=>{
+    if(f[2]==="select"){
+      return `<label>${esc(f[1])}<select name="${f[0]}" required><option value="">Choose…</option>${f[4].map(o=>`<option value="${esc(o[0])}" ${o[0]==f[3]?"selected":""}>${esc(o[1])}</option>`).join("")}</select></label>`;
+    }
+    if(f[2]==="date-optional-time"){
+      const d=f[3]?new Date(f[3]):null;
+      const valid=d && !Number.isNaN(d.getTime());
+      const pad=n=>String(n).padStart(2,"0");
+      const dateValue=valid?`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`:"";
+      const timeValue=valid && (d.getHours()!==0 || d.getMinutes()!==0)?`${pad(d.getHours())}:${pad(d.getMinutes())}`:"";
+      return `<label>${esc(f[1])}<div class="date-time-row"><input name="due_at_date" type="date" value="${dateValue}" required><input name="due_at_time" type="time" value="${timeValue}" aria-label="Optional due time" title="Optional due time"><span class="field-hint">time optional</span></div></label>`;
+    }
+    return `<label>${esc(f[1])}<input name="${f[0]}" type="${f[2]}" value="${esc(f[3])}" ${["title","course_id","due_at","starts_at","code","name"].includes(f[0])?"required":""}></label>`;
+  }).join("");
+  $("modal").innerHTML=`<div class="modal-box"><div class="modal-head"><h2>${title}</h2><button onclick="closeModal()">×</button></div><form id="dynamic">${fieldHtml}<div class="modal-actions"><button type="button" onclick="closeModal()">Cancel</button><button class="btn primary">Save</button></div></form></div>`;
+  $("modal").classList.add("open");
+  $("dynamic").onsubmit=e=>{
+    e.preventDefault();
+    let v=Object.fromEntries(new FormData(e.target).entries());
+    if(v.due_at_date!==undefined){
+      v.due_at=v.due_at_date ? new Date(`${v.due_at_date}T${v.due_at_time||"00:00"}`).toISOString() : null;
+      delete v.due_at_date;
+      delete v.due_at_time;
+    }
+    ["weight_percent","credits","points_earned","points_possible"].forEach(k=>{if(v[k]!==undefined&&v[k]!=="")v[k]=Number(v[k])});
+    ["starts_at"].forEach(k=>{if(v[k])v[k]=new Date(v[k]).toISOString()});
+    onSave(v);
+    closeModal();
+  };
+}
 function closeModal(){$("modal").classList.remove("open")}
 function setView(v){state.view=v;render()} window.setView=setView;window.openAssignment=openAssignment;window.openExam=openExam;window.openCourse=openCourse;window.openGrade=openGrade;window.editAssignment=editAssignment;window.deleteAssignment=deleteAssignment;window.editExam=editExam;window.deleteExam=deleteExam;window.closeModal=closeModal;
 document.addEventListener("click",e=>{let b=e.target.closest("[data-view]");if(b)setView(b.dataset.view);if(e.target.id==="logout")sb.auth.signOut()});

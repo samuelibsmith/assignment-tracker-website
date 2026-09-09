@@ -183,3 +183,8 @@ p{color:var(--muted)}
 
 /* Quick actions save in place without rebuilding the assignment table. */
 .tr.quick-saving { opacity: .72; transition: opacity .15s ease; }
+
+.quick-status{min-width:9.5rem;border:1px solid var(--line,#d9d9d9);border-radius:8px;padding:.38rem .55rem;background:var(--surface,#fff);font:inherit}
+.date-time-row{display:flex;align-items:center;gap:.45rem}
+.date-time-row input{min-width:0}
+.field-hint{font-size:.75rem;opacity:.6;white-space:nowrap}

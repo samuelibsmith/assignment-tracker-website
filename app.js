@@ -50,6 +50,13 @@ async function quickUpdateAssignment(id, patch, triggerEl) {
   const assignment = assignmentById(id);
   if (!assignment) return;
 
+  // A completed assignment should never remain on the To-do list.
+  // This makes completion the source of truth and also handles changes made
+  // through either the status dropdown or the Done button.
+  if (normalizeStatus(patch.status) === "completed") {
+    patch = {...patch, is_todo:false};
+  }
+
   const previous = {};
   Object.keys(patch).forEach(key => {
     previous[key] = assignment[key];
@@ -167,6 +174,35 @@ const fmtDateTime = x => {
 };
 const daysUntil = x => x ? Math.ceil((new Date(x)-new Date())/86400000) : null;
 
+let todoCleanupTimer = null;
+
+async function cleanupCompletedTodos(){
+  if(!state.user || typeof sb === "undefined") return;
+  const completed=state.assignments.filter(a=>normalizeStatus(a.status)==="completed" && !!a.is_todo);
+  if(!completed.length) return;
+
+  const ids=completed.map(a=>a.id);
+  const {error}=await sb.from("assignments").update({is_todo:false}).in("id",ids);
+  if(error){
+    console.error("Couldn't clean completed assignments from To-do list",error);
+    return;
+  }
+  completed.forEach(a=>{a.is_todo=false;});
+  if(state.view==="dashboard" && typeof renderDashboardTodo==="function") renderDashboardTodo();
+}
+
+function scheduleTodoCleanup(){
+  if(todoCleanupTimer) clearTimeout(todoCleanupTimer);
+  const now=new Date();
+  const next=new Date(now);
+  next.setHours(24,0,0,0);
+  const delay=Math.max(1000,next-now);
+  todoCleanupTimer=setTimeout(async()=>{
+    await cleanupCompletedTodos();
+    scheduleTodoCleanup();
+  },delay);
+}
+
 async function boot(){
   if(!window.APP_CONFIG || window.APP_CONFIG.SUPABASE_URL.includes("YOUR-")){
     showSetup();
@@ -180,7 +216,10 @@ async function signedIn(user){
   state.user=user;
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("userEmail").textContent=user.email||"";
-  await loadAll(); render();
+  await loadAll();
+  await cleanupCompletedTodos();
+  scheduleTodoCleanup();
+  render();
 }
 function showSetup(){
   $("auth").classList.remove("hidden"); $("app").classList.add("hidden");

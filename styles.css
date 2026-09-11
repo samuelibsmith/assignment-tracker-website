@@ -246,3 +246,23 @@ p{color:var(--muted)}
     grid-template-columns: 1fr;
   }
 }
+
+/* V11: clearer To-do controls and responsive dashboard To-do rows */
+.todo-toggle {
+  min-width: 0;
+  white-space: nowrap;
+  padding: .38rem .55rem;
+}
+.todo-row {
+  flex-wrap: wrap;
+  gap: .65rem;
+}
+.todo-row .btn.small {
+  margin-left: auto;
+}
+@media (max-width: 700px) {
+  .todo-row .btn.small {
+    margin-left: 0;
+    width: 100%;
+  }
+}

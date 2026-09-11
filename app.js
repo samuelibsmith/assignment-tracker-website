@@ -74,6 +74,9 @@ async function quickUpdateAssignment(id, patch, triggerEl) {
       row.classList.remove("quick-saving");
       row.removeAttribute("aria-busy");
     }
+    if (state.view === "dashboard" && typeof renderDashboardTodo === "function") {
+      renderDashboardTodo();
+    }
   } catch (err) {
     console.error(err);
 
@@ -132,10 +135,12 @@ function quickPriorityButton(a) {
 function quickTodoButton(a) {
   const todo = !!a.is_todo;
   return `
-    <button class="quick-icon ${todo ? "active" : ""}" type="button"
-      title="${todo ? "Remove from to-do" : "Add to to-do"}"
-      aria-label="${todo ? "Remove from to-do" : "Add to to-do"}"
-      onclick="event.stopPropagation(); quickUpdateAssignment('${a.id}', {is_todo:${!todo}}, this)">☑</button>`;
+    <button class="quick-icon todo-toggle ${todo ? "active" : ""}" type="button"
+      title="${todo ? "Remove from to-do list" : "Add to to-do list"}"
+      aria-label="${todo ? "Remove from to-do list" : "Add to to-do list"}"
+      onclick="event.stopPropagation(); quickUpdateAssignment('${a.id}', {is_todo:${!todo}}, this)">
+      ${todo ? "✓ To-do" : "+ To-do"}
+    </button>`;
 }
 
 window.quickUpdateAssignment = quickUpdateAssignment;
@@ -218,9 +223,23 @@ function renderDashboard(){
  <div class="metric-grid"><div class="metric"><small>OPEN WORK</small><b>${a.length-done}</b><span>assignments remaining</span></div><div class="metric pink"><small>THIS WEEK</small><b>${a.filter(x=>x.due_at&&daysUntil(x.due_at)>=0&&daysUntil(x.due_at)<=7&&normalizeStatus(x.status)!=="completed").length}</b><span>deadlines to watch</span></div><div class="metric teal"><small>EXAMS AHEAD</small><b>${e.filter(x=>new Date(x.starts_at)>=new Date()).length}</b><span>upcoming exams</span></div><div class="metric gold"><small>COMPLETION</small><b>${a.length?Math.round(done/a.length*100):0}%</b><span>of assignments complete</span></div></div>
  <div class="two-col"><section class="card"><div class="section-head"><div><h3>Next up</h3><small>Your nearest deadlines</small></div><button class="link" onclick="setView('assignments')">View all →</button></div>${upcoming.length?upcoming.map(itemRow).join(""):`<div class="empty">🎉 Nothing due soon.</div>`}</section>
  <section class="card"><div class="section-head"><div><h3>Exam radar</h3><small>Upcoming exams</small></div><button class="link" onclick="setView('exams')">Exam center →</button></div>${examSoon.length?examSoon.map(examRow).join(""):`<div class="empty">No upcoming exams.</div>`}</section></div>
+ <section class="card"><div class="section-head"><div><h3>To-do list</h3><small>Assignments you marked for focused follow-up</small></div><button class="link" onclick="setView('assignments')">Masterlist →</button></div><div id="dashboardTodo"></div></section>
  <section class="card"><div class="section-head"><div><h3>Course pulse</h3><small>Your current semester</small></div><button class="link" onclick="setView('grades')">Grades →</button></div><div class="course-pulse">${state.courses.slice(0,6).map(coursePulse).join("")||'<div class="empty">Add a course to get started.</div>'}</div></section>`;
+ renderDashboardTodo();
 }
-function itemRow(x){const c=state.courses.find(c=>c.id===x.course_id);const d=daysUntil(x.due_at);return `<div class="list-row"><div class="emoji-dot">📚</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.assignment_type)}</small></div><span class="deadline ${d!==null&&d<=2?"hot":""}">${d===0?"Today":d===1?"Tomorrow":d<0?"Overdue":d+"d"}<small>${fmtDate(x.due_at)}</small></span></div>`}
+function itemRow(x){const c=state.courses.find(c=>c.id===x.course_id);const d=daysUntil(x.due_at);return `<div class="list-row"><div class="emoji-dot">📚</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.assignment_type)}</small></div><span class="deadline ${d!==null&&d<=2?"hot":""}">${d===0?"Today":d===1?"Tomorrow":d<0?"Overdue":d+"d"}<small>${fmtDate(x.due_at)}</small></div>`}
+function todoRow(x){
+ const c=state.courses.find(c=>c.id===x.course_id);
+ const d=daysUntil(x.due_at);
+ return `<div class="list-row todo-row"><div class="emoji-dot">☐</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.assignment_type)}</small></div><span class="deadline ${d!==null&&d<0?"hot":""}">${d===null?"No date":d===0?"Today":d===1?"Tomorrow":d<0?"Overdue":d+"d"}<small>${fmtDate(x.due_at)}</small></span><button class="btn small" type="button" onclick="event.stopPropagation(); quickUpdateAssignment('${x.id}', {is_todo:false}, this)">Remove from list</button></div>`;
+}
+function renderDashboardTodo(){
+ const host=$("dashboardTodo");
+ if(!host) return;
+ const todo=state.assignments.filter(x=>!!x.is_todo&&normalizeStatus(x.status)!=="completed")
+   .sort((a,b)=>new Date(a.due_at||"9999")-new Date(b.due_at||"9999"));
+ host.innerHTML=todo.length?todo.slice(0,8).map(todoRow).join(""):`<div class="empty">Your to-do list is empty. Use “+ To-do” on an assignment in the Masterlist to add one.</div>`;
+}
 function examRow(x){const c=state.courses.find(c=>c.id===x.course_id);const d=daysUntil(x.starts_at);return `<div class="list-row"><div class="emoji-dot exam">📝</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.exam_type)}</small></div><span class="deadline hot">${d===0?"Today":d===1?"Tomorrow":d+"d"}<small>${fmtDateTime(x.starts_at)}</small></span></div>`}
 function coursePulse(c){const grades=state.grades.filter(g=>g.course_id===c.id&&g.points_earned!=null&&g.points_possible);let p=grades.length?grades.reduce((a,g)=>a+Number(g.points_earned),0)/grades.reduce((a,g)=>a+Number(g.points_possible),0)*100:null;return `<div class="pulse"><span class="swatch" style="background:${esc(c.color)}"></span><b>${esc(c.code)}</b><div class="grow"><div class="bar"><i style="width:${p||0}%;background:${esc(c.color)}"></i></div></div><strong>${p==null?"—":p.toFixed(1)+"%"}</strong></div>`}
 function renderAssignments(){

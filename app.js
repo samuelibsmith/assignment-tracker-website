@@ -161,7 +161,7 @@ const sb = createClient(window.APP_CONFIG.SUPABASE_URL, window.APP_CONFIG.SUPABA
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
 });
 
-let state = { user:null, semesters:[], courses:[], assignments:[], exams:[], grades:[], notifications:[], view:"dashboard" };
+let state = { user:null, semesters:[], courses:[], assignments:[], exams:[], grades:[], notifications:[], view:"dashboard", calendarMonthOffset:0 };
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
@@ -265,11 +265,11 @@ function renderDashboard(){
  <section class="card dashboard-todo-card"><div class="section-head"><div><h3>To-do list</h3><small>Assignments you marked for focused follow-up</small></div><button class="link" onclick="setView('assignments')">Masterlist →</button></div><div id="dashboardTodo" class="dashboard-todo-list"></div></section>`;
  renderDashboardTodo();
 }
-function itemRow(x){const c=state.courses.find(c=>c.id===x.course_id);const d=daysUntil(x.due_at);return `<div class="list-row"><div class="emoji-dot">📚</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.assignment_type)}</small></div><span class="deadline ${d!==null&&d<=2?"hot":""}">${d===0?"Today":d===1?"Tomorrow":d<0?"Overdue":d+"d"}<small>${fmtDate(x.due_at)}</small></div>`}
+function itemRow(x){const c=state.courses.find(c=>c.id===x.course_id);const d=daysUntil(x.due_at);return `<div class="list-row dashboard-assignment-row"><div class="emoji-dot">📚</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.assignment_type)}</small></div><span class="deadline ${d!==null&&d<=2?"hot":""}">${d===0?"Today":d===1?"Tomorrow":d<0?"Overdue":d+"d"}<small>${fmtDate(x.due_at)}</small></span><span class="dashboard-done">${quickDoneButton(x)}</span></div>`}
 function todoRow(x){
  const c=state.courses.find(c=>c.id===x.course_id);
  const d=daysUntil(x.due_at);
- return `<div class="list-row todo-row"><div class="emoji-dot">☐</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.assignment_type)}</small></div><span class="deadline ${d!==null&&d<0?"hot":""}">${d===null?"No date":d===0?"Today":d===1?"Tomorrow":d<0?"Overdue":d+"d"}<small>${fmtDate(x.due_at)}</small></span><button class="btn small" type="button" onclick="event.stopPropagation(); quickUpdateAssignment('${x.id}', {is_todo:false}, this)">Remove from list</button></div>`;
+ return `<div class="list-row todo-row"><div class="emoji-dot">☐</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.assignment_type)}</small></div><span class="deadline ${d!==null&&d<0?"hot":""}">${d===null?"No date":d===0?"Today":d===1?"Tomorrow":d<0?"Overdue":d+"d"}<small>${fmtDate(x.due_at)}</small></span><span class="todo-done">${quickDoneButton(x)}</span><button class="btn small" type="button" onclick="event.stopPropagation(); quickUpdateAssignment('${x.id}', {is_todo:false}, this)">Remove from list</button></div>`;
 }
 function renderDashboardTodo(){
  const host=$("dashboardTodo");
@@ -316,9 +316,9 @@ function calendarMonth(year,month){
     const date=new Date(year,month,d), key=calendarDayKey(date), today=calendarDayKey(new Date())===key;
     const items=state.assignments.filter(a=>a.due_at&&calendarDayKey(new Date(a.due_at))===key);
     const ex=state.exams.filter(a=>a.starts_at&&calendarDayKey(new Date(a.starts_at))===key);
-    const visibleItems=items.slice(0,3), visibleEx=ex.slice(0,2), extra=Math.max(0,items.length-visibleItems.length)+Math.max(0,ex.length-visibleEx.length);
-    let html=`<div class="day${today?" today": ""}"><b>${d}</b>`;
-    html+=visibleItems.map(a=>{const c=state.courses.find(c=>c.id===a.course_id);return `<span class="cal-chip course-chip" style="--course-color:${esc(c?.color||"#d9d9d9")}">${esc(c?.code?c.code+" · ":"")}${esc(a.title)}</span>`}).join("");
+    const visibleItems=items.slice(0,4), visibleEx=ex.slice(0,2), extra=Math.max(0,items.length-visibleItems.length)+Math.max(0,ex.length-visibleEx.length);
+    let html=`<div class="day${today?" today":""}"><b>${d}</b>`;
+    html+=visibleItems.map(a=>{const c=state.courses.find(c=>c.id===a.course_id);const done=normalizeStatus(a.status)==="Complete";return `<span class="cal-chip course-chip ${done?"completed":""}" style="--course-color:${esc(c?.color||"#d9d9d9")}" title="${done?"Completed: ":""}${esc(a.title)}">${esc(c?.code?c.code+" · ":"")}${esc(a.title)}</span>`}).join("");
     html+=visibleEx.map(a=>{const c=state.courses.find(c=>c.id===a.course_id);return `<span class="cal-chip exam-chip course-chip" style="--course-color:${esc(c?.color||"#777")}">📝 ${esc(c?.code?c.code+" · ":"")}${esc(a.title)}</span>`}).join("");
     if(extra) html+=`<span class="cal-more">+${extra} more</span>`;
     html+='</div>'; cells.push(html);
@@ -326,15 +326,15 @@ function calendarMonth(year,month){
   while(cells.length%7) cells.push('<div class="day muted" aria-hidden="true"></div>');
   return `<section class="month-card card"><div class="month-head"><h3>${new Date(year,month,1).toLocaleDateString(undefined,{month:"long",year:"numeric"})}</h3><span>${daysIn} days</span></div><div class="weekdays">${["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(x=>`<b>${x}</b>`).join("")}</div><div class="days">${cells.join("")}</div></section>`;
 }
+function calendarMove(delta){state.calendarMonthOffset=Math.max(0,Math.min(12,state.calendarMonthOffset+delta));if(state.view==="calendar")renderCalendar();}
+function calendarGoToday(){state.calendarMonthOffset=0;if(state.view==="calendar")renderCalendar();}
+window.calendarMove=calendarMove; window.calendarGoToday=calendarGoToday;
 function renderCalendar(){
   const now=new Date();
-  const months=[];
-  for(let offset=0;offset<=12;offset++){
-    const d=new Date(now.getFullYear(),now.getMonth()+offset,1);
-    months.push(calendarMonth(d.getFullYear(),d.getMonth()));
-  }
+  const selected=new Date(now.getFullYear(),now.getMonth()+state.calendarMonthOffset,1);
   const end=new Date(now.getFullYear(),now.getMonth()+12,1);
-  $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">CALENDAR</span><h2>Academic calendar</h2><p>All months from now through ${end.toLocaleDateString(undefined,{month:"long",year:"numeric"})}. Deadlines and exams use their course colors.</p></div></div><div class="calendar-months">${months.join("")}</div>`;
+  const atStart=state.calendarMonthOffset===0, atEnd=state.calendarMonthOffset===12;
+  $("content").innerHTML=`<div class="page-head calendar-page-head"><div><span class="eyebrow">CALENDAR</span><h2>Academic calendar</h2><p>One full month at a time. Deadlines use their course colors; completed assignments are greyed out and crossed out.</p></div><div class="calendar-nav"><button class="btn" onclick="calendarMove(-1)" ${atStart?"disabled":""}>← Previous</button><button class="btn primary" onclick="calendarGoToday()">Today</button><button class="btn" onclick="calendarMove(1)" ${atEnd?"disabled":""}>Next →</button></div></div><div class="calendar-position">Month ${state.calendarMonthOffset+1} of 13 · Through ${end.toLocaleDateString(undefined,{month:"long",year:"numeric"})}</div><div class="calendar-single">${calendarMonth(selected.getFullYear(),selected.getMonth())}</div>`;
 }
 function renderExams(){
  const rows=[...state.exams].sort((a,b)=>new Date(a.starts_at)-new Date(b.starts_at));

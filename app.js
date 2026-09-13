@@ -53,7 +53,7 @@ async function quickUpdateAssignment(id, patch, triggerEl) {
   // A completed assignment should never remain on the To-do list.
   // This makes completion the source of truth and also handles changes made
   // through either the status dropdown or the Done button.
-  if (normalizeStatus(patch.status) === "completed") {
+  if (normalizeStatus(patch.status) === "Complete") {
     patch = {...patch, is_todo:false};
   }
 
@@ -178,7 +178,7 @@ let todoCleanupTimer = null;
 
 async function cleanupCompletedTodos(){
   if(!state.user || typeof sb === "undefined") return;
-  const completed=state.assignments.filter(a=>normalizeStatus(a.status)==="completed" && !!a.is_todo);
+  const completed=state.assignments.filter(a=>normalizeStatus(a.status)==="Complete" && !!a.is_todo);
   if(!completed.length) return;
 
   const ids=completed.map(a=>a.id);
@@ -255,11 +255,11 @@ function render(){
   views[state.view]();
 }
 function renderDashboard(){
- const a=state.assignments,e=state.exams,done=a.filter(x=>normalizeStatus(x.status)==="completed").length;
- const upcoming=a.filter(x=>x.due_at&&normalizeStatus(x.status)!=="completed"&&new Date(x.due_at)>=new Date()).sort((x,y)=>new Date(x.due_at)-new Date(y.due_at)).slice(0,6);
+ const a=state.assignments,e=state.exams,done=a.filter(x=>normalizeStatus(x.status)==="Complete").length;
+ const upcoming=a.filter(x=>x.due_at&&normalizeStatus(x.status)!=="Complete"&&new Date(x.due_at)>=new Date()).sort((x,y)=>new Date(x.due_at)-new Date(y.due_at)).slice(0,6);
  const examSoon=e.filter(x=>new Date(x.starts_at)>=new Date()).sort((x,y)=>new Date(x.starts_at)-new Date(y.starts_at)).slice(0,3);
  $("content").innerHTML=`<div class="hero"><div><span class="eyebrow">ACADEMIC COMMAND CENTER</span><h2>Stay on top of your work</h2><p>Stay ahead of deadlines, exams, and grades without wrestling with a spreadsheet.</p></div><button class="btn primary" onclick="openAssignment()">＋ Add assignment</button></div>
- <div class="metric-grid"><div class="metric"><small>OPEN WORK</small><b>${a.length-done}</b><span>assignments remaining</span></div><div class="metric pink"><small>THIS WEEK</small><b>${a.filter(x=>x.due_at&&daysUntil(x.due_at)>=0&&daysUntil(x.due_at)<=7&&normalizeStatus(x.status)!=="completed").length}</b><span>deadlines to watch</span></div><div class="metric teal"><small>EXAMS AHEAD</small><b>${e.filter(x=>new Date(x.starts_at)>=new Date()).length}</b><span>upcoming exams</span></div><div class="metric gold"><small>COMPLETION</small><b>${a.length?Math.round(done/a.length*100):0}%</b><span>of assignments complete</span></div></div>
+ <div class="metric-grid"><div class="metric"><small>OPEN WORK</small><b>${a.length-done}</b><span>assignments remaining</span></div><div class="metric pink"><small>THIS WEEK</small><b>${a.filter(x=>x.due_at&&daysUntil(x.due_at)>=0&&daysUntil(x.due_at)<=7&&normalizeStatus(x.status)!=="Complete").length}</b><span>deadlines to watch</span></div><div class="metric teal"><small>EXAMS AHEAD</small><b>${e.filter(x=>new Date(x.starts_at)>=new Date()).length}</b><span>upcoming exams</span></div><div class="metric gold"><small>COMPLETION</small><b>${a.length?Math.round(done/a.length*100):0}%</b><span>of assignments complete</span></div></div>
  <div class="two-col"><section class="card"><div class="section-head"><div><h3>Next up</h3><small>Your nearest deadlines</small></div><button class="link" onclick="setView('assignments')">View all →</button></div>${upcoming.length?upcoming.map(itemRow).join(""):`<div class="empty">🎉 Nothing due soon.</div>`}</section>
  <section class="card"><div class="section-head"><div><h3>Exam radar</h3><small>Upcoming exams</small></div><button class="link" onclick="setView('exams')">Exam center →</button></div>${examSoon.length?examSoon.map(examRow).join(""):`<div class="empty">No upcoming exams.</div>`}</section></div>
  <section class="card"><div class="section-head"><div><h3>To-do list</h3><small>Assignments you marked for focused follow-up</small></div><button class="link" onclick="setView('assignments')">Masterlist →</button></div><div id="dashboardTodo"></div></section>
@@ -275,7 +275,7 @@ function todoRow(x){
 function renderDashboardTodo(){
  const host=$("dashboardTodo");
  if(!host) return;
- const todo=state.assignments.filter(x=>!!x.is_todo&&normalizeStatus(x.status)!=="completed")
+ const todo=state.assignments.filter(x=>!!x.is_todo&&normalizeStatus(x.status)!=="Complete")
    .sort((a,b)=>new Date(a.due_at||"9999")-new Date(b.due_at||"9999"));
  host.innerHTML=todo.length?todo.slice(0,8).map(todoRow).join(""):`<div class="empty">Your to-do list is empty. Use “+ To-do” on an assignment in the Masterlist to add one.</div>`;
 }
@@ -316,7 +316,7 @@ function renderExams(){
  $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">EXAM CENTER</span><h2>Exam center</h2><p>Track dates, weights, locations, and study status.</p></div><button class="btn primary" onclick="openExam()">＋ Add exam</button></div><div class="exam-grid">${rows.map(x=>{let c=state.courses.find(c=>c.id===x.course_id),d=daysUntil(x.starts_at);return `<div class="exam-card"><div class="exam-top"><span class="exam-icon">📝</span><em>${d<0?"Complete":d===0?"TODAY":d+" DAYS"}</em></div><h3>${esc(x.title)}</h3><p>${esc(c?.code||"Course")} · ${esc(x.exam_type)}</p><strong>${fmtDateTime(x.starts_at)}</strong><small>${esc(x.location||"Location TBD")} ${x.weight_percent?`· ${x.weight_percent}% of grade`:""}</small><div class="exam-actions"><button onclick="editExam('${x.id}')">Edit</button><button onclick="deleteExam('${x.id}')">Delete</button></div></div>`}).join("")||'<div class="empty">Add your first exam.</div>'}</div>`;
 }
 function renderCourses(){
- $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">COURSES</span><h2>Your classes</h2><p>Course-level workload and grade context.</p></div><button class="btn primary" onclick="openCourse()">＋ Add course</button></div><div class="course-grid">${state.courses.map(c=>{let g=state.grades.filter(x=>x.course_id===c.id&&x.points_earned!=null&&x.points_possible),p=g.length?g.reduce((a,x)=>a+Number(x.points_earned),0)/g.reduce((a,x)=>a+Number(x.points_possible),0)*100:null,a=state.assignments.filter(x=>x.course_id===c.id&&normalizeStatus(x.status)!=="completed").length;return `<div class="course-card"><div class="course-accent" style="background:${esc(c.color)}"></div><span class="course-code">${esc(c.code)}</span><h3>${esc(c.name)}</h3><p>${esc(c.instructor||"Instructor not set")} · ${c.credits} credits</p><div class="course-stats"><span><b>${p==null?"—":p.toFixed(1)+"%"}</b><small>current grade</small></span><span><b>${a}</b><small>open assignments</small></span></div><button onclick="openCourse('${c.id}')">Open course →</button></div>`}).join("")||'<div class="empty">Add your first course.</div>'}</div>`;
+ $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">COURSES</span><h2>Your classes</h2><p>Course-level workload and grade context.</p></div><button class="btn primary" onclick="openCourse()">＋ Add course</button></div><div class="course-grid">${state.courses.map(c=>{let g=state.grades.filter(x=>x.course_id===c.id&&x.points_earned!=null&&x.points_possible),p=g.length?g.reduce((a,x)=>a+Number(x.points_earned),0)/g.reduce((a,x)=>a+Number(x.points_possible),0)*100:null,a=state.assignments.filter(x=>x.course_id===c.id&&normalizeStatus(x.status)!=="Complete").length;return `<div class="course-card"><div class="course-accent" style="background:${esc(c.color)}"></div><span class="course-code">${esc(c.code)}</span><h3>${esc(c.name)}</h3><p>${esc(c.instructor||"Instructor not set")} · ${c.credits} credits</p><div class="course-stats"><span><b>${p==null?"—":p.toFixed(1)+"%"}</b><small>current grade</small></span><span><b>${a}</b><small>open assignments</small></span></div><button onclick="openCourse('${c.id}')">Open course →</button></div>`}).join("")||'<div class="empty">Add your first course.</div>'}</div>`;
 }
 function renderGrades(){
  let totalCredits=0,weighted=0;const cards=state.courses.map(c=>{let g=state.grades.filter(x=>x.course_id===c.id&&x.points_earned!=null&&x.points_possible),p=g.length?g.reduce((a,x)=>a+Number(x.points_earned),0)/g.reduce((a,x)=>a+Number(x.points_possible),0)*100:null;if(p!=null){totalCredits+=Number(c.credits);weighted+=p*Number(c.credits)}return {c,p,g}});let avg=totalCredits?weighted/totalCredits:null;
@@ -403,6 +403,6 @@ function setView(v){state.view=v;render()} window.setView=setView;window.openAss
 document.addEventListener("click",e=>{let b=e.target.closest("[data-view]");if(b)setView(b.dataset.view);if(e.target.id==="logout")sb.auth.signOut()});
 /* Project hierarchy helpers */
 function assignmentChildren(items,parentId){return (items||[]).filter(a=>(a.parent_id||null)===(parentId||null)).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));}
-function assignmentProgress(items,parentId){const c=assignmentChildren(items,parentId);const done=c.filter(x=>normalizeStatus(x.status)==="completed").length;return {done,total:c.length,pct:c.length?Math.round(done/c.length*100):0};}
+function assignmentProgress(items,parentId){const c=assignmentChildren(items,parentId);const done=c.filter(x=>normalizeStatus(x.status)==="Complete").length;return {done,total:c.length,pct:c.length?Math.round(done/c.length*100):0};}
 
 boot();

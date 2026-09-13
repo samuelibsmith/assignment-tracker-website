@@ -217,3 +217,61 @@ input:focus,select:focus{border-color:rgba(22,135,217,.65);box-shadow:0 0 0 3px 
 @media(max-width:380px){.nav button{padding-left:8px;padding-right:8px}.nav button:before{display:none}.metric-grid{grid-template-columns:1fr}.day{min-height:76px}.cal-chip{font-size:7px}.topbar h1{font-size:18px}}
 
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+
+/* ---------- V15.1 dashboard layout corrections ---------- */
+/* Keep dashboard to-do controls in the same row on desktop. */
+#dashboardTodo{min-width:0;overflow:hidden}
+#dashboardTodo .todo-row{
+  display:grid;
+  grid-template-columns:34px minmax(0,1fr) minmax(90px,max-content) max-content;
+  grid-template-areas:"icon content deadline action";
+  align-items:center;
+  column-gap:12px;
+  row-gap:0;
+  min-width:0;
+  padding:12px 17px;
+  border-top:1px solid rgba(50,81,101,.11);
+}
+#dashboardTodo .todo-row:first-child{border-top:0}
+#dashboardTodo .todo-row>.emoji-dot{grid-area:icon}
+#dashboardTodo .todo-row>.grow{grid-area:content;min-width:0}
+#dashboardTodo .todo-row>.deadline{grid-area:deadline;grid-column:auto;min-width:90px}
+#dashboardTodo .todo-row>.btn{grid-area:action;grid-column:auto;justify-self:end;margin:0;white-space:nowrap}
+#dashboardTodo .todo-row .assignment-title,
+#dashboardTodo .todo-row .grow b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Give Course Pulse a stable, non-wrapping course column and a flexible progress bar. */
+.course-pulse{padding:0 17px 13px;min-width:0}
+.course-pulse .pulse{
+  display:grid;
+  grid-template-columns:10px minmax(92px,130px) minmax(0,1fr) 58px;
+  gap:10px;
+  align-items:center;
+  min-width:0;
+  padding:10px 0;
+}
+.course-pulse .pulse b{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
+.course-pulse .bar{min-width:0;width:100%}
+.course-pulse .pulse strong{min-width:0;white-space:nowrap}
+
+@media(max-width:900px){
+  #dashboardTodo .todo-row{
+    grid-template-columns:34px minmax(0,1fr) max-content;
+    grid-template-areas:"icon content deadline" "icon content action";
+    row-gap:7px;
+  }
+  #dashboardTodo .todo-row>.btn{justify-self:end}
+  .course-pulse .pulse{grid-template-columns:10px minmax(82px,110px) minmax(0,1fr) 55px}
+}
+@media(max-width:600px){
+  #dashboardTodo .todo-row{
+    grid-template-columns:30px minmax(0,1fr);
+    grid-template-areas:"icon content" "icon deadline" "icon action";
+    row-gap:7px;
+    padding:11px 13px;
+  }
+  #dashboardTodo .todo-row>.deadline{min-width:0;align-items:flex-start;text-align:left}
+  #dashboardTodo .todo-row>.btn{justify-self:start}
+  .course-pulse{padding-left:13px;padding-right:13px}
+  .course-pulse .pulse{grid-template-columns:9px minmax(74px,90px) minmax(0,1fr) 50px;gap:8px}
+}

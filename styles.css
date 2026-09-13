@@ -275,3 +275,104 @@ input:focus,select:focus{border-color:rgba(22,135,217,.65);box-shadow:0 0 0 3px 
   .course-pulse{padding-left:13px;padding-right:13px}
   .course-pulse .pulse{grid-template-columns:9px minmax(74px,90px) minmax(0,1fr) 50px;gap:8px}
 }
+
+/* ---------- V16 dashboard + responsive cleanup ---------- */
+.dashboard-todo-card{overflow:hidden}
+.dashboard-todo-list{min-width:0;width:100%;overflow:hidden}
+#dashboardTodo .todo-row{
+  width:100%;display:grid;grid-template-columns:34px minmax(0,1fr) minmax(90px,120px) max-content;
+  grid-template-areas:"icon content deadline action";align-items:center;column-gap:12px;row-gap:0;
+  padding:13px 17px;border-top:1px solid rgba(50,81,101,.11);min-width:0;
+}
+#dashboardTodo .todo-row:first-child{border-top:0}
+#dashboardTodo .todo-row>.emoji-dot{grid-area:icon}
+#dashboardTodo .todo-row>.grow{grid-area:content;min-width:0;overflow:hidden}
+#dashboardTodo .todo-row>.deadline{grid-area:deadline;min-width:0;justify-self:stretch}
+#dashboardTodo .todo-row>.btn{grid-area:action;justify-self:end;min-width:112px;white-space:nowrap}
+#dashboardTodo .todo-row .grow b{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dashboardTodo .todo-row .grow small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- V16 multi-month calendar ---------- */
+.calendar-months{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;min-width:0}
+.month-card{overflow:hidden;min-width:0}
+.month-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px 10px;border-bottom:1px solid rgba(44,78,99,.10)}
+.month-head h3{margin:0;color:#234d6d;font-size:16px}
+.month-head span{font-size:10px;font-weight:700;color:#7a8c99}
+.month-card .weekdays,.month-card .days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));min-width:0}
+.month-card .weekdays{background:linear-gradient(#f6fbfe,#e2eff5);border-bottom:1px solid rgba(44,78,99,.14)}
+.month-card .weekdays b{padding:8px 3px;text-align:center;font-size:9px;color:#688092;text-transform:uppercase;letter-spacing:.35px}
+.month-card .day{min-width:0;min-height:104px;padding:6px;border-right:1px solid rgba(48,79,98,.10);border-bottom:1px solid rgba(48,79,98,.10);background:rgba(255,255,255,.40);overflow:hidden}
+.month-card .day:nth-child(7n){border-right:0}
+.month-card .day:hover{background:rgba(255,255,255,.66)}
+.month-card .day>b{display:grid;place-items:center;width:22px;height:22px;margin-bottom:4px;border-radius:7px;color:#48657a;font-size:10px}
+.month-card .day.today>b{background:linear-gradient(#57b8ef,#1687d9,#0869b1);color:#fff;box-shadow:0 2px 5px rgba(20,90,137,.22);text-shadow:0 -1px rgba(0,47,84,.4)}
+.month-card .day.muted{background:rgba(221,235,243,.28)}
+.month-card .day.muted b{opacity:.35}
+.month-card .cal-chip{display:block;min-width:0;margin:3px 0;padding:3px 5px;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:8px;font-weight:800;box-shadow:0 1px 2px rgba(32,61,79,.10),inset 0 1px rgba(255,255,255,.65)}
+.month-card .cal-chip.course-chip{border-left:3px solid var(--course-color,#d9d9d9);background:color-mix(in srgb,var(--course-color,#d9d9d9) 14%,white);color:#29485d;padding-left:5px}
+.month-card .cal-chip.exam-chip{font-weight:900}
+.month-card .cal-more{display:block;padding:2px 4px;color:#176da4;font-size:8px;font-weight:900;white-space:nowrap}
+
+/* Tablet: keep the application inside the viewport and make navigation scroll cleanly. */
+@media(max-width:900px){
+  .main{width:100%;max-width:100%;overflow-x:hidden}
+  .sidebar{width:100%;overflow:hidden}
+  .nav{width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .nav::-webkit-scrollbar{display:none}
+  .nav button{flex:0 0 auto}
+  .topbar{width:100%;max-width:100%;overflow:hidden}
+  .topbar>div{min-width:0}
+  .topbar h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .topbar #today{flex:0 0 auto}
+  .hero,.page-head{width:100%;max-width:100%}
+  .two-col,.exam-grid,.course-grid,.grade-grid,.calendar-months{grid-template-columns:1fr}
+  #dashboardTodo .todo-row{grid-template-columns:34px minmax(0,1fr) max-content;grid-template-areas:"icon content deadline" "icon content action";row-gap:7px}
+  #dashboardTodo .todo-row>.btn{justify-self:end}
+}
+
+/* Phone: no horizontal scrolling, no squeezed desktop grids, and comfortably tappable controls. */
+@media(max-width:600px){
+  html,body{width:100%;max-width:100%;overflow-x:hidden}
+  .shell{width:100%;max-width:100%}
+  .sidebar{position:sticky;top:0;padding:7px 8px}
+  .nav{gap:4px}
+  .nav button{padding:9px 10px;font-size:11px}
+  .main{padding:0 10px 28px;width:100%;max-width:100%;overflow-x:hidden}
+  .topbar{position:sticky;top:0;min-height:60px;margin:0 -10px 14px;padding:9px 10px}
+  .topbar h1{font-size:19px}
+  .topbar small{display:none}
+  #today{font-size:9px!important;padding:5px 6px!important}
+  .hero{padding:15px;border-radius:14px}
+  .hero h2,.page-head h2{font-size:21px}
+  .metric-grid{grid-template-columns:1fr 1fr;gap:8px}
+  .metric{padding:11px;border-radius:11px}
+  .metric b{font-size:21px}
+  .metric span{font-size:10px}
+  .section-head{padding:12px 13px;align-items:flex-start}
+  .section-head>div{min-width:0}
+  .section-head h3{font-size:14px}
+  .section-head small{display:block;max-width:240px}
+  #dashboardTodo .todo-row{grid-template-columns:30px minmax(0,1fr);grid-template-areas:"icon content" "icon deadline" "icon action";column-gap:8px;row-gap:6px;padding:11px 12px}
+  #dashboardTodo .todo-row>.deadline{justify-self:start;text-align:left;align-items:flex-start}
+  #dashboardTodo .todo-row>.btn{justify-self:start;min-width:0}
+  .month-card .day{min-height:78px;padding:4px}
+  .month-card .weekdays b{padding:7px 1px;font-size:7px}
+  .month-card .day>b{width:20px;height:20px;font-size:9px}
+  .month-card .cal-chip{font-size:7px;padding:2px 3px;margin:2px 0}
+  .month-card .cal-more{font-size:7px}
+  .month-head{padding:12px 13px 9px}
+  .month-head h3{font-size:15px}
+  .month-head span{font-size:9px}
+  .filters{padding:11px 12px}
+  #assignmentTable .tr{width:100%;max-width:100%;overflow:hidden}
+  .modal-box{width:100%;max-width:100%;max-height:92vh}
+  .modal-actions{flex-wrap:wrap}
+  .modal-actions button{min-height:38px}
+}
+
+@media(max-width:380px){
+  .metric-grid{grid-template-columns:1fr}
+  .nav button{padding-left:8px;padding-right:8px}
+  .month-card .day{min-height:70px}
+  .month-card .cal-chip{font-size:6.5px}
+}

@@ -21,8 +21,45 @@ function statusClass(status) {
   return normalizeStatus(status).toLowerCase().replace(/\s+/g, "_");
 }
 
-function assignmentById(id) {
-  return state.assignments.find(a => a.id === id);
+function rebuildIndexes({courses=false, assignments=false, exams=false, grades=false}={}) {
+  if (courses) {
+    state.indexes.courses = new Map(state.courses.map(c => [c.id, c]));
+  }
+  if (assignments) {
+    state.indexes.assignments = new Map(state.assignments.map(a => [a.id, a]));
+    state.cache.sortedAssignments = [...state.assignments].sort((a,b)=>(a.due_at||"9999").localeCompare(b.due_at||"9999"));
+    state.indexes.assignmentsByDate = new Map();
+    for (const a of state.assignments) {
+      if (!a.due_at) continue;
+      const key = calendarDayKey(new Date(a.due_at));
+      const bucket = state.indexes.assignmentsByDate.get(key);
+      if (bucket) bucket.push(a); else state.indexes.assignmentsByDate.set(key, [a]);
+    }
+  }
+  if (exams) {
+    state.cache.sortedExams = [...state.exams].sort((a,b)=>(a.starts_at||"9999").localeCompare(b.starts_at||"9999"));
+    state.indexes.examsByDate = new Map();
+    for (const e of state.exams) {
+      if (!e.starts_at) continue;
+      const key = calendarDayKey(new Date(e.starts_at));
+      const bucket = state.indexes.examsByDate.get(key);
+      if (bucket) bucket.push(e); else state.indexes.examsByDate.set(key, [e]);
+    }
+  }
+  if (grades) {
+    state.indexes.gradesByCourse = new Map();
+    for (const g of state.grades) {
+      const bucket = state.indexes.gradesByCourse.get(g.course_id);
+      if (bucket) bucket.push(g); else state.indexes.gradesByCourse.set(g.course_id, [g]);
+    }
+  }
+}
+function courseById(id) { return state.indexes.courses.get(id); }
+function assignmentById(id) { return state.indexes.assignments.get(id); }
+function gradesForCourse(id) { return state.indexes.gradesByCourse.get(id) || []; }
+function replaceInArray(arr, item) {
+  const i = arr.findIndex(x => x.id === item.id);
+  if (i >= 0) arr[i] = item; else arr.push(item);
 }
 
 function assignmentMatchesCurrentFilters(a) {
@@ -62,6 +99,7 @@ async function quickUpdateAssignment(id, patch, triggerEl) {
     previous[key] = assignment[key];
     assignment[key] = patch[key];
   });
+  rebuildIndexes({assignments:true});
 
   // Update only the clicked control immediately. No table reload or full render.
   const row = triggerEl?.closest(".tr");
@@ -91,6 +129,7 @@ async function quickUpdateAssignment(id, patch, triggerEl) {
     Object.keys(previous).forEach(key => {
       assignment[key] = previous[key];
     });
+    rebuildIndexes({assignments:true});
 
     if (row) {
       row.hidden = !assignmentMatchesCurrentFilters(assignment);
@@ -161,18 +200,25 @@ const sb = createClient(window.APP_CONFIG.SUPABASE_URL, window.APP_CONFIG.SUPABA
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
 });
 
-let state = { user:null, semesters:[], courses:[], assignments:[], exams:[], grades:[], notifications:[], view:"dashboard", calendarMonthOffset:0 };
+let state = {
+  user:null, semesters:[], courses:[], assignments:[], exams:[], grades:[], notifications:[],
+  view:"dashboard", calendarMonthOffset:0,
+  loaded:{grades:false,notifications:false},
+  indexes:{courses:new Map(), assignments:new Map(), assignmentsByDate:new Map(), examsByDate:new Map(), gradesByCourse:new Map()},
+  cache:{sortedAssignments:[],sortedExams:[]}
+};
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-const fmtDate = x => x ? new Date(x).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}) : "—";
+const dateFormatter = new Intl.DateTimeFormat(undefined,{month:"short",day:"numeric",year:"numeric"});
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+const fmtDate = x => x ? dateFormatter.format(new Date(x)) : "—";
 const fmtDateTime = x => {
   if(!x) return "—";
   const d=new Date(x);
-  const base=d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
-  return (d.getHours()===0 && d.getMinutes()===0) ? base : d.toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+  return (d.getHours()===0 && d.getMinutes()===0) ? dateFormatter.format(d) : dateTimeFormatter.format(d);
 };
-const daysUntil = x => x ? Math.ceil((new Date(x)-new Date())/86400000) : null;
+const daysUntil = x => x ? Math.ceil((new Date(x).getTime()-Date.now())/86400000) : null;
 
 let todoCleanupTimer = null;
 
@@ -188,6 +234,7 @@ async function cleanupCompletedTodos(){
     return;
   }
   completed.forEach(a=>{a.is_todo=false;});
+  rebuildIndexes({assignments:true});
   if(state.view==="dashboard" && typeof renderDashboardTodo==="function") renderDashboardTodo();
 }
 
@@ -213,10 +260,11 @@ async function boot(){
   sb.auth.onAuthStateChange(async (_event,session)=> session ? signedIn(session.user) : showAuth());
 }
 async function signedIn(user){
+  if(state.user?.id===user.id && !$('app').classList.contains('hidden')) return;
   state.user=user;
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("userEmail").textContent=user.email||"";
-  await loadAll();
+  await loadCoreData();
   await cleanupCompletedTodos();
   scheduleTodoCleanup();
   render();
@@ -226,62 +274,90 @@ function showSetup(){
   $("authBox").innerHTML=`<div class="logo">🎓<span>Assignment Tracker</span></div><h1>Setup</h1><p class="muted">Add your Supabase URL and publishable key to <code>config.js</code>, then reload this page.</p><div class="notice">Your secret/service_role key should never go in this file.</div>`;
 }
 function showAuth(){
+  state.user=null;
   $("auth").classList.remove("hidden"); $("app").classList.add("hidden");
   $("authBox").innerHTML=`<div class="logo">🎓<span>Assignment Tracker</span></div><h1>Assignment Tracker</h1><p class="muted">Assignments, exams, grades, courses, and calendar — all synced across devices.</p>
   <form id="loginForm"><input id="email" type="email" placeholder="Email" required><input id="password" type="password" placeholder="Password" required><button class="btn primary" type="submit">Log in</button><button class="btn" type="button" id="signup">Create account</button></form><div id="authMsg"></div>`;
   $("loginForm").onsubmit=async e=>{e.preventDefault(); const {error}=await sb.auth.signInWithPassword({email:$("email").value,password:$("password").value}); if(error)$("authMsg").textContent=error.message};
   $("signup").onclick=async()=>{const {error}=await sb.auth.signUp({email:$("email").value,password:$("password").value});$("authMsg").textContent=error?error.message:"Check your email to confirm your account."};
 }
-async function loadAll(){
-  const uid=state.user.id;
-  const results=await Promise.all([
-    sb.from("semesters").select("*").order("start_date",{ascending:false}),
-    sb.from("courses").select("*").order("code"),
-    sb.from("assignments").select("*").order("due_at"),
-    sb.from("exams").select("*").order("starts_at"),
-    sb.from("grade_items").select("*").order("graded_at",{ascending:false}),
-    sb.from("notifications").select("*").is("read_at",null).order("scheduled_for")
+async function loadCoreData(){
+  const results = await Promise.all([
+    sb.from("semesters").select("id,name,start_date,end_date,is_current").order("start_date",{ascending:false}),
+    sb.from("courses").select("id,code,name,credits,instructor,color,semester_id").order("code"),
+    sb.from("assignments").select("id,title,course_id,due_at,assignment_type,status,priority,is_todo,parent_id,sort_order").order("due_at"),
+    sb.from("exams").select("id,title,course_id,starts_at,exam_type,location,weight_percent").order("starts_at")
   ]);
-  const names=["semesters","courses","assignments","exams","grades","notifications"];
+  const names=["semesters","courses","assignments","exams"];
   results.forEach((r,i)=>{if(r.error) console.error(names[i],r.error); state[names[i]]=r.data||[]});
-  let current=state.semesters.find(s=>s.is_current);
-  if(!current && state.semesters.length){ current=state.semesters[0]; }
+  rebuildIndexes({courses:true,assignments:true,exams:true});
+  let current=state.semesters.find(s=>s.is_current) || state.semesters[0];
   state.currentSemester=current?.id||null;
 }
-function render(){
+async function loadGrades(){
+  if(state.loaded.grades) return;
+  const {data,error}=await sb.from("grade_items").select("id,title,course_id,category,points_earned,points_possible,weight_percent,graded_at").order("graded_at",{ascending:false});
+  if(error) { console.error("grades",error); state.grades=[]; }
+  else state.grades=data||[];
+  state.loaded.grades=true;
+  rebuildIndexes({grades:true});
+}
+async function ensureViewData(view=state.view){
+  if(view==="grades" || view==="courses") await loadGrades();
+}
+async function refreshCoreData(){
+  state.loaded.grades=false;
+  await loadCoreData();
+}
+async function loadAll(){
+  await loadCoreData();
+  await ensureViewData(state.view);
+}
+async function render(){
   $("appTitle").textContent=state.view==="dashboard"?"Dashboard":state.view==="assignments"?"Masterlist":state.view==="calendar"?"Calendar":state.view==="exams"?"Exam Center":state.view==="courses"?"Courses":"Grades & GPA";
   document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.view===state.view));
+  await ensureViewData(state.view);
   const views={dashboard:renderDashboard,assignments:renderAssignments,calendar:renderCalendar,exams:renderExams,courses:renderCourses,grades:renderGrades};
   views[state.view]();
 }
 function renderDashboard(){
- const a=state.assignments,e=state.exams,done=a.filter(x=>normalizeStatus(x.status)==="Complete").length;
- const upcoming=a.filter(x=>x.due_at&&normalizeStatus(x.status)!=="Complete"&&new Date(x.due_at)>=new Date()).sort((x,y)=>new Date(x.due_at)-new Date(y.due_at)).slice(0,6);
- const examSoon=e.filter(x=>new Date(x.starts_at)>=new Date()).sort((x,y)=>new Date(x.starts_at)-new Date(y.starts_at)).slice(0,3);
+ const a=state.assignments,e=state.exams,now=Date.now(),weekEnd=now+8*86400000;
+ const done=a.reduce((n,x)=>n+(normalizeStatus(x.status)==="Complete"?1:0),0);
+ const open=a.filter(x=>normalizeStatus(x.status)!=="Complete");
+ const upcoming=[];
+ for(const x of state.cache.sortedAssignments){
+   if(x.due_at && normalizeStatus(x.status)!=="Complete" && new Date(x.due_at).getTime()>=now){ upcoming.push(x); if(upcoming.length===6) break; }
+ }
+ const examSoon=[];
+ for(const x of state.cache.sortedExams){
+   if(x.starts_at && new Date(x.starts_at).getTime()>=now){ examSoon.push(x); if(examSoon.length===3) break; }
+ }
+ const weekCount=open.reduce((n,x)=>{if(!x.due_at)return n;const t=new Date(x.due_at).getTime();return n+(t>=now&&t<=weekEnd?1:0)},0);
+ const examCount=e.reduce((n,x)=>n+(x.starts_at&&new Date(x.starts_at).getTime()>=now?1:0),0);
  $("content").innerHTML=`<div class="hero"><div><span class="eyebrow">ACADEMIC COMMAND CENTER</span><h2>Stay on top of your work</h2><p>Stay ahead of deadlines, exams, and grades without wrestling with a spreadsheet.</p></div><button class="btn primary" onclick="openAssignment()">＋ Add assignment</button></div>
- <div class="metric-grid"><div class="metric"><small>OPEN WORK</small><b>${a.length-done}</b><span>assignments remaining</span></div><div class="metric pink"><small>THIS WEEK</small><b>${a.filter(x=>x.due_at&&daysUntil(x.due_at)>=0&&daysUntil(x.due_at)<=7&&normalizeStatus(x.status)!=="Complete").length}</b><span>deadlines to watch</span></div><div class="metric teal"><small>EXAMS AHEAD</small><b>${e.filter(x=>new Date(x.starts_at)>=new Date()).length}</b><span>upcoming exams</span></div><div class="metric gold"><small>COMPLETION</small><b>${a.length?Math.round(done/a.length*100):0}%</b><span>of assignments complete</span></div></div>
+ <div class="metric-grid"><div class="metric"><small>OPEN WORK</small><b>${open.length}</b><span>assignments remaining</span></div><div class="metric pink"><small>THIS WEEK</small><b>${weekCount}</b><span>deadlines to watch</span></div><div class="metric teal"><small>EXAMS AHEAD</small><b>${examCount}</b><span>upcoming exams</span></div><div class="metric gold"><small>COMPLETION</small><b>${a.length?Math.round(done/a.length*100):0}%</b><span>of assignments complete</span></div></div>
  <div class="two-col"><section class="card"><div class="section-head"><div><h3>Next up</h3><small>Your nearest deadlines</small></div><button class="link" onclick="setView('assignments')">View all →</button></div>${upcoming.length?upcoming.map(itemRow).join(""):`<div class="empty">🎉 Nothing due soon.</div>`}</section>
  <section class="card"><div class="section-head"><div><h3>Exam radar</h3><small>Upcoming exams</small></div><button class="link" onclick="setView('exams')">Exam center →</button></div>${examSoon.length?examSoon.map(examRow).join(""):`<div class="empty">No upcoming exams.</div>`}</section></div>
  <section class="card dashboard-todo-card"><div class="section-head"><div><h3>To-do list</h3><small>Assignments you marked for focused follow-up</small></div><button class="link" onclick="setView('assignments')">Masterlist →</button></div><div id="dashboardTodo" class="dashboard-todo-list"></div></section>`;
  renderDashboardTodo();
 }
-function itemRow(x){const c=state.courses.find(c=>c.id===x.course_id);const d=daysUntil(x.due_at);return `<div class="list-row dashboard-assignment-row"><div class="emoji-dot">📚</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.assignment_type)}</small></div><span class="deadline ${d!==null&&d<=2?"hot":""}">${d===0?"Today":d===1?"Tomorrow":d<0?"Overdue":d+"d"}<small>${fmtDate(x.due_at)}</small></span><span class="dashboard-done">${quickDoneButton(x)}</span></div>`}
+function itemRow(x){const c=courseById(x.course_id);const d=daysUntil(x.due_at);return `<div class="list-row dashboard-assignment-row"><div class="emoji-dot">📚</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.assignment_type)}</small></div><span class="deadline ${d!==null&&d<=2?"hot":""}">${d===0?"Today":d===1?"Tomorrow":d<0?"Overdue":d+"d"}<small>${fmtDate(x.due_at)}</small></span><span class="dashboard-done">${quickDoneButton(x)}</span></div>`}
 function todoRow(x){
- const c=state.courses.find(c=>c.id===x.course_id);
+ const c=courseById(x.course_id);
  const d=daysUntil(x.due_at);
  return `<div class="list-row todo-row"><div class="emoji-dot">☐</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.assignment_type)}</small></div><span class="deadline ${d!==null&&d<0?"hot":""}">${d===null?"No date":d===0?"Today":d===1?"Tomorrow":d<0?"Overdue":d+"d"}<small>${fmtDate(x.due_at)}</small></span><span class="todo-done">${quickDoneButton(x)}</span><button class="btn small" type="button" onclick="event.stopPropagation(); quickUpdateAssignment('${x.id}', {is_todo:false}, this)">Remove from list</button></div>`;
 }
 function renderDashboardTodo(){
  const host=$("dashboardTodo");
  if(!host) return;
- const todo=state.assignments.filter(x=>!!x.is_todo&&normalizeStatus(x.status)!=="Complete")
-   .sort((a,b)=>new Date(a.due_at||"9999")-new Date(b.due_at||"9999"));
+ const todo=state.assignments.filter(x=>!!x.is_todo&&normalizeStatus(x.status)!=="Complete");
+ todo.sort((a,b)=>(a.due_at||"9999").localeCompare(b.due_at||"9999"));
  host.innerHTML=todo.length?todo.slice(0,8).map(todoRow).join(""):`<div class="empty">Your to-do list is empty. Use “+ To-do” on an assignment in the Masterlist to add one.</div>`;
 }
-function examRow(x){const c=state.courses.find(c=>c.id===x.course_id);const d=daysUntil(x.starts_at);return `<div class="list-row"><div class="emoji-dot exam">📝</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.exam_type)}</small></div><span class="deadline hot">${d===0?"Today":d===1?"Tomorrow":d+"d"}<small>${fmtDateTime(x.starts_at)}</small></span></div>`}
+function examRow(x){const c=courseById(x.course_id);const d=daysUntil(x.starts_at);return `<div class="list-row"><div class="emoji-dot exam">📝</div><div class="grow"><b>${esc(x.title)}</b><small>${esc(c?.code||"Course")} · ${esc(x.exam_type)}</small></div><span class="deadline hot">${d===0?"Today":d===1?"Tomorrow":d+"d"}<small>${fmtDateTime(x.starts_at)}</small></span></div>`}
 function coursePulse(c){const grades=state.grades.filter(g=>g.course_id===c.id&&g.points_earned!=null&&g.points_possible);let p=grades.length?grades.reduce((a,g)=>a+Number(g.points_earned),0)/grades.reduce((a,g)=>a+Number(g.points_possible),0)*100:null;return `<div class="pulse"><span class="swatch" style="background:${esc(c.color)}"></span><b>${esc(c.code)}</b><div class="grow"><div class="bar"><i style="width:${p||0}%;background:${esc(c.color)}"></i></div></div><strong>${p==null?"—":p.toFixed(1)+"%"}</strong></div>`}
 function renderAssignments(){
- const rows=[...state.assignments].sort((a,b)=>new Date(a.due_at||"9999")-new Date(b.due_at||"9999"));
+ const rows=state.cache.sortedAssignments;
  $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">MASTERLIST</span><h2>All assignments</h2><p>Use the status menu to update progress, ★ for priority, and To-do to add or remove an assignment from your Dashboard to-do list.</p></div><button class="btn primary" onclick="openAssignment()">＋ Add assignment</button></div><div class="card"><div class="filters"><input id="aq" placeholder="Search…"><select id="as"><option value="">All statuses</option><option>Not Started</option><option>In Progress</option><option>Complete</option></select></div><div id="assignmentTable"></div></div>`;
  const draw=()=>{
    let q=$("aq").value.toLowerCase(),s=$("as").value;
@@ -289,7 +365,7 @@ function renderAssignments(){
    $("assignmentTable").innerHTML=`<div class="table">
      <div class="tr th"><span>Done</span><span>Assignment</span><span>Course</span><span>Due</span><span>Status</span><span>Actions</span></div>
      ${r.map(x=>{
-       let c=state.courses.find(c=>c.id===x.course_id),d=daysUntil(x.due_at);
+       let c=courseById(x.course_id),d=daysUntil(x.due_at);
        return `<div class="tr">
          <span>${quickDoneButton(x)}</span>
          <span><b>${esc(x.title)}</b><small>${esc(x.assignment_type)}</small></span>
@@ -314,12 +390,12 @@ function calendarMonth(year,month){
   for(let i=0;i<start;i++) cells.push('<div class="day muted" aria-hidden="true"></div>');
   for(let d=1;d<=daysIn;d++){
     const date=new Date(year,month,d), key=calendarDayKey(date), today=calendarDayKey(new Date())===key;
-    const items=state.assignments.filter(a=>a.due_at&&calendarDayKey(new Date(a.due_at))===key);
-    const ex=state.exams.filter(a=>a.starts_at&&calendarDayKey(new Date(a.starts_at))===key);
+    const items=state.indexes.assignmentsByDate.get(key)||[];
+    const ex=state.indexes.examsByDate.get(key)||[];
     const visibleItems=items.slice(0,4), visibleEx=ex.slice(0,2), extra=Math.max(0,items.length-visibleItems.length)+Math.max(0,ex.length-visibleEx.length);
     let html=`<div class="day${today?" today":""}"><b>${d}</b>`;
-    html+=visibleItems.map(a=>{const c=state.courses.find(c=>c.id===a.course_id);const done=normalizeStatus(a.status)==="Complete";return `<span class="cal-chip course-chip ${done?"completed":""}" style="--course-color:${esc(c?.color||"#d9d9d9")}" title="${done?"Completed: ":""}${esc(a.title)}">${esc(c?.code?c.code+" · ":"")}${esc(a.title)}</span>`}).join("");
-    html+=visibleEx.map(a=>{const c=state.courses.find(c=>c.id===a.course_id);return `<span class="cal-chip exam-chip course-chip" style="--course-color:${esc(c?.color||"#777")}">📝 ${esc(c?.code?c.code+" · ":"")}${esc(a.title)}</span>`}).join("");
+    html+=visibleItems.map(a=>{const c=courseById(a.course_id);const done=normalizeStatus(a.status)==="Complete";return `<span class="cal-chip course-chip ${done?"completed":""}" style="--course-color:${esc(c?.color||"#d9d9d9")}" title="${done?"Completed: ":""}${esc(a.title)}">${esc(c?.code?c.code+" · ":"")}${esc(a.title)}</span>`}).join("");
+    html+=visibleEx.map(a=>{const c=courseById(a.course_id);return `<span class="cal-chip exam-chip course-chip" style="--course-color:${esc(c?.color||"#777")}">📝 ${esc(c?.code?c.code+" · ":"")}${esc(a.title)}</span>`}).join("");
     if(extra) html+=`<span class="cal-more">+${extra} more</span>`;
     html+='</div>'; cells.push(html);
   }
@@ -337,20 +413,49 @@ function renderCalendar(){
   $("content").innerHTML=`<div class="page-head calendar-page-head"><div><span class="eyebrow">CALENDAR</span><h2>Academic calendar</h2><p>One full month at a time. Deadlines use their course colors; completed assignments are greyed out and crossed out.</p></div><div class="calendar-nav"><button class="btn" onclick="calendarMove(-1)" ${atStart?"disabled":""}>← Previous</button><button class="btn primary" onclick="calendarGoToday()">Today</button><button class="btn" onclick="calendarMove(1)" ${atEnd?"disabled":""}>Next →</button></div></div><div class="calendar-position">Month ${state.calendarMonthOffset+1} of 13 · Through ${end.toLocaleDateString(undefined,{month:"long",year:"numeric"})}</div><div class="calendar-single">${calendarMonth(selected.getFullYear(),selected.getMonth())}</div>`;
 }
 function renderExams(){
- const rows=[...state.exams].sort((a,b)=>new Date(a.starts_at)-new Date(b.starts_at));
- $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">EXAM CENTER</span><h2>Exam center</h2><p>Track dates, weights, locations, and study status.</p></div><button class="btn primary" onclick="openExam()">＋ Add exam</button></div><div class="exam-grid">${rows.map(x=>{let c=state.courses.find(c=>c.id===x.course_id),d=daysUntil(x.starts_at);return `<div class="exam-card"><div class="exam-top"><span class="exam-icon">📝</span><em>${d<0?"Complete":d===0?"TODAY":d+" DAYS"}</em></div><h3>${esc(x.title)}</h3><p>${esc(c?.code||"Course")} · ${esc(x.exam_type)}</p><strong>${fmtDateTime(x.starts_at)}</strong><small>${esc(x.location||"Location TBD")} ${x.weight_percent?`· ${x.weight_percent}% of grade`:""}</small><div class="exam-actions"><button onclick="editExam('${x.id}')">Edit</button><button onclick="deleteExam('${x.id}')">Delete</button></div></div>`}).join("")||'<div class="empty">Add your first exam.</div>'}</div>`;
+ const rows=state.cache.sortedExams;
+ $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">EXAM CENTER</span><h2>Exam center</h2><p>Track dates, weights, locations, and study status.</p></div><button class="btn primary" onclick="openExam()">＋ Add exam</button></div><div class="exam-grid">${rows.map(x=>{let c=courseById(x.course_id),d=daysUntil(x.starts_at);return `<div class="exam-card"><div class="exam-top"><span class="exam-icon">📝</span><em>${d<0?"Complete":d===0?"TODAY":d+" DAYS"}</em></div><h3>${esc(x.title)}</h3><p>${esc(c?.code||"Course")} · ${esc(x.exam_type)}</p><strong>${fmtDateTime(x.starts_at)}</strong><small>${esc(x.location||"Location TBD")} ${x.weight_percent?`· ${x.weight_percent}% of grade`:""}</small><div class="exam-actions"><button onclick="editExam('${x.id}')">Edit</button><button onclick="deleteExam('${x.id}')">Delete</button></div></div>`}).join("")||'<div class="empty">Add your first exam.</div>'}</div>`;
 }
 function renderCourses(){
- $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">COURSES</span><h2>Your classes</h2><p>Course-level workload and grade context.</p></div><button class="btn primary" onclick="openCourse()">＋ Add course</button></div><div class="course-grid">${state.courses.map(c=>{let g=state.grades.filter(x=>x.course_id===c.id&&x.points_earned!=null&&x.points_possible),p=g.length?g.reduce((a,x)=>a+Number(x.points_earned),0)/g.reduce((a,x)=>a+Number(x.points_possible),0)*100:null,a=state.assignments.filter(x=>x.course_id===c.id&&normalizeStatus(x.status)!=="Complete").length;return `<div class="course-card"><div class="course-accent" style="background:${esc(c.color)}"></div><span class="course-code">${esc(c.code)}</span><h3>${esc(c.name)}</h3><p>${esc(c.instructor||"Instructor not set")} · ${c.credits} credits</p><div class="course-stats"><span><b>${p==null?"—":p.toFixed(1)+"%"}</b><small>current grade</small></span><span><b>${a}</b><small>open assignments</small></span></div><button onclick="openCourse('${c.id}')">Open course →</button></div>`}).join("")||'<div class="empty">Add your first course.</div>'}</div>`;
+ const openByCourse=new Map();
+ for(const a of state.assignments) if(normalizeStatus(a.status)!=="Complete") openByCourse.set(a.course_id,(openByCourse.get(a.course_id)||0)+1);
+ $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">COURSES</span><h2>Your classes</h2><p>Course-level workload and grade context.</p></div><button class="btn primary" onclick="openCourse()">＋ Add course</button></div><div class="course-grid">${state.courses.map(c=>{let g=gradesForCourse(c.id).filter(x=>x.points_earned!=null&&x.points_possible),earned=0,possible=0;for(const x of g){earned+=Number(x.points_earned);possible+=Number(x.points_possible)}let pct=possible?earned/possible*100:null,a=openByCourse.get(c.id)||0;return `<div class="course-card"><div class="course-accent" style="background:${esc(c.color)}"></div><span class="course-code">${esc(c.code)}</span><h3>${esc(c.name)}</h3><p>${esc(c.instructor||"Instructor not set")} · ${c.credits} credits</p><div class="course-stats"><span><b>${pct==null?"—":pct.toFixed(1)+"%"}</b><small>current grade</small></span><span><b>${a}</b><small>open assignments</small></span></div><button onclick="openCourse('${c.id}')">Open course →</button></div>`}).join("")||'<div class="empty">Add your first course.</div>'}</div>`;
 }
 function renderGrades(){
- let totalCredits=0,weighted=0;const cards=state.courses.map(c=>{let g=state.grades.filter(x=>x.course_id===c.id&&x.points_earned!=null&&x.points_possible),p=g.length?g.reduce((a,x)=>a+Number(x.points_earned),0)/g.reduce((a,x)=>a+Number(x.points_possible),0)*100:null;if(p!=null){totalCredits+=Number(c.credits);weighted+=p*Number(c.credits)}return {c,p,g}});let avg=totalCredits?weighted/totalCredits:null;
+ let totalCredits=0,weighted=0;const cards=state.courses.map(c=>{let g=gradesForCourse(c.id).filter(x=>x.points_earned!=null&&x.points_possible),earned=0,possible=0;for(const x of g){earned+=Number(x.points_earned);possible+=Number(x.points_possible)}let p=possible?earned/possible*100:null;if(p!=null){totalCredits+=Number(c.credits);weighted+=p*Number(c.credits)}return {c,p,g}});let avg=totalCredits?weighted/totalCredits:null;
  $("content").innerHTML=`<div class="page-head"><div><span class="eyebrow">GRADES & GPA</span><h2>Grades and GPA</h2><p>Gradebook by course, plus a semester GPA estimate.</p></div><button class="btn primary" onclick="openGrade()">＋ Add grade</button></div><div class="gpa-banner"><div><small>SEMESTER GPA ESTIMATE</small><b>${avg==null?"—":gpaFromPercent(avg).toFixed(2)}</b></div><div><small>AVERAGE PERCENT</small><b>${avg==null?"—":avg.toFixed(1)+"%"}</b></div><div><small>CREDITS TRACKED</small><b>${totalCredits}</b></div></div><div class="grade-grid">${cards.map(o=>`<div class="card grade-card"><div><b>${esc(o.c.code)}</b><span>${o.p==null?"No grades yet":o.p.toFixed(1)+"%"}</span></div><h3>${esc(o.c.name)}</h3><div class="bar"><i style="width:${o.p||0}%;background:${esc(o.c.color)}"></i></div><small>${o.g.length} graded item${o.g.length===1?"":"s"}</small></div>`).join("")}</div>`;
 }
 function gpaFromPercent(p){return p>=93?4:p>=90?3.7:p>=87?3.3:p>=83?3:p>=80?2.7:p>=77?2.3:p>=73?2:p>=70?1.7:p>=67?1.3:p>=65?1:0}
-async function insert(table,obj){const {error}=await sb.from(table).insert({...obj,user_id:state.user.id});if(error){alert(error.message);return false;}await loadAll();render();return true}
-async function update(table,id,obj){const {error}=await sb.from(table).update(obj).eq("id",id);if(error)alert(error.message);await loadAll();render()}
-async function remove(table,id){if(confirm("Delete this item?")){const {error}=await sb.from(table).delete().eq("id",id);if(error)alert(error.message);await loadAll();render()}}
+async function insert(table,obj){
+  const {data,error}=await sb.from(table).insert({...obj,user_id:state.user.id}).select().single();
+  if(error){alert(error.message);return false;}
+  if(table==="assignments"){state.assignments.push(data);rebuildIndexes({assignments:true});}
+  else if(table==="courses"){state.courses.push(data);state.courses.sort((a,b)=>String(a.code).localeCompare(String(b.code)));rebuildIndexes({courses:true});}
+  else if(table==="exams"){state.exams.push(data);state.exams.sort((a,b)=>new Date(a.starts_at)-new Date(b.starts_at));rebuildIndexes({exams:true});}
+  else if(table==="grade_items"){state.grades.unshift(data);state.loaded.grades=true;rebuildIndexes({grades:true});}
+  render();
+  return true;
+}
+async function update(table,id,obj){
+  const {data,error}=await sb.from(table).update(obj).eq("id",id).select().single();
+  if(error){alert(error.message);return false;}
+  if(table==="assignments"){replaceInArray(state.assignments,data);rebuildIndexes({assignments:true});}
+  else if(table==="courses"){replaceInArray(state.courses,data);state.courses.sort((a,b)=>String(a.code).localeCompare(String(b.code)));rebuildIndexes({courses:true});}
+  else if(table==="exams"){replaceInArray(state.exams,data);state.exams.sort((a,b)=>new Date(a.starts_at)-new Date(b.starts_at));rebuildIndexes({exams:true});}
+  else if(table==="grade_items"){replaceInArray(state.grades,data);state.loaded.grades=true;rebuildIndexes({grades:true});}
+  render();
+  return true;
+}
+async function remove(table,id){
+  if(!confirm("Delete this item?")) return;
+  const {error}=await sb.from(table).delete().eq("id",id);
+  if(error){alert(error.message);return;}
+  if(table==="assignments"){state.assignments=state.assignments.filter(x=>x.id!==id);rebuildIndexes({assignments:true});}
+  else if(table==="courses"){state.courses=state.courses.filter(x=>x.id!==id);rebuildIndexes({courses:true});}
+  else if(table==="exams"){state.exams=state.exams.filter(x=>x.id!==id);rebuildIndexes({exams:true});}
+  else if(table==="grade_items"){state.grades=state.grades.filter(x=>x.id!==id);rebuildIndexes({grades:true});}
+  render();
+}
 function openAssignment(id){
   let x=id?state.assignments.find(a=>a.id===id):null;
   modalForm("Assignment",[

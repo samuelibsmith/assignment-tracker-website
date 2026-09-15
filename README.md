@@ -1,28 +1,26 @@
-# Assignment Tracker
+# Assignment Tracker — V19 Performance Edition
 
-Minimal black-and-white assignment tracker with restrained status colors.
+V19 keeps the V18 iPhone/Aero visual design and functionality while reducing unnecessary browser and Supabase work.
 
-## GitHub Pages
-Upload/commit these files to the repository root:
-- index.html
-- styles.css
-- app.js
-- config.js
-- config.example.js
-- .gitignore
-- .nojekyll
-- README.md
-- supabase/schema.sql
+## Performance improvements
 
-In GitHub: Settings → Pages → Deploy from branch → main → `/ (root)`.
+- Lazy-loads grade data only when Classes or Grades & GPA is opened.
+- Requests only the fields the app actually needs from Supabase where practical.
+- Builds O(1)-style Maps for courses, assignments, assignments by calendar date, exams by calendar date, and grades by course.
+- Keeps pre-sorted assignment/exam lists in memory instead of sorting on every render.
+- Makes calendar rendering date-indexed instead of scanning every assignment for every calendar day.
+- Uses cached `Intl.DateTimeFormat` instances rather than creating locale formatters for every displayed date.
+- Updates add/edit/delete operations locally after successful Supabase writes instead of reloading the entire application dataset.
+- Keeps quick status, Done, priority, and To-do actions optimistic: the UI updates immediately and only reverts if the database write fails.
+- Avoids duplicate signed-in initialization when Supabase emits a session event after the initial session check.
+- Preserves the existing V18 dashboard completion controls and one-month calendar navigation.
 
-`config.js` is intentionally included because the browser needs the Supabase project URL and publishable key. Never put a service_role/secret key in it.
+## Supabase indexes
 
-If you already ran the original database schema, run the V4 hierarchy migration at the bottom of `supabase/schema.sql`.
+`PERFORMANCE_SQL.sql` contains optional indexes recommended for larger datasets. Run it once in the Supabase SQL Editor.
 
+## Deployment
 
-## One-click status
-On the Masterlist, click the status pill to cycle:
-**Not Started → In Progress → Complete → Not Started**.
+Upload/commit the site files to the root of the GitHub Pages repository. Keep your normal `config.js` with the Supabase URL and publishable key.
 
-The check-circle button immediately marks an assignment Complete; clicking it again reopens it as In Progress. Changes are written directly to Supabase.
+Never put a Supabase service_role/secret key in client-side files.
